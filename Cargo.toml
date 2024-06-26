@@ -7,3 +7,6 @@ edition = "2021"
 relm4 = { version = "0.8.0", features = ["libadwaita", "gnome_46"] }
 relm4-components = "0.8.0"
 relm4-icons = "0.8.0"
+
+[build-dependencies]
+glib-build-tools = "0.19.0"
