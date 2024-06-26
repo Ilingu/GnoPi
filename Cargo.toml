@@ -1,0 +1,9 @@
+[package]
+name = "pi_trainer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+relm4 = { version = "0.8.0", features = ["libadwaita", "gnome_46"] }
+relm4-components = "0.8.0"
+relm4-icons = "0.8.0"
