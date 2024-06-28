@@ -1,41 +1,50 @@
+pub mod preferences;
+
 use std::time::Duration;
 
 use crate::components::{
     about::{AboutInput, AboutPageModel},
     header::{HeaderModel, HeaderOutput},
+    preferences::{PreferencesPageInput, PreferencesPageModel, PreferencesPageOutput},
 };
 use gtk::prelude::*;
+use preferences::AppPreferences;
 use relm4::{
     gtk, Component, ComponentController, ComponentParts, ComponentSender, Controller,
     RelmWidgetExt, SimpleComponent,
 };
 
-enum AppMode {
+// App Extra Types
+
+#[derive(Debug, Copy, Clone)]
+pub enum AppMode {
     Blind,
     Visible,
 }
 
+// App Component
+
 pub struct AppModel {
     user_pi: String,
-    mode: AppMode,
-    timeout: Option<Duration>,
+    preferences: AppPreferences,
 
     // components
     header: Controller<HeaderModel>,
-    about: Controller<AboutPageModel>,
+    about_page: Controller<AboutPageModel>,
+    preferences_page: Controller<PreferencesPageModel>,
 }
 
 #[derive(Debug)]
-pub enum AppMsg {
+pub enum AppInput {
     AddChar(char),
     Open(HeaderOutput),
-    Close(HeaderOutput),
+    SetPreference(PreferencesPageOutput),
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for AppModel {
-    type Init = ();
-    type Input = AppMsg;
+    type Init = AppPreferences;
+    type Input = AppInput;
     type Output = ();
 
     view! {
@@ -56,24 +65,29 @@ impl SimpleComponent for AppModel {
 
     // Initialize the UI.
     fn init(
-        _init: Self::Init,
+        preferences: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let header: Controller<HeaderModel> = HeaderModel::builder()
             .launch(())
-            .forward(sender.input_sender(), AppMsg::Open);
-        let about_dialog = AboutPageModel::builder()
+            .forward(sender.input_sender(), AppInput::Open);
+        let about_page = AboutPageModel::builder()
             .transient_for(&root)
             .launch(true)
             .detach();
+        let preferences_page = PreferencesPageModel::builder()
+            .transient_for(&root)
+            .launch((true, preferences))
+            .forward(sender.input_sender(), AppInput::SetPreference);
 
         let model = AppModel {
             user_pi: String::new(),
-            mode: AppMode::Visible,
-            timeout: None,
+            preferences,
+
             header,
-            about: about_dialog,
+            about_page,
+            preferences_page,
         };
 
         // Insert the macro code generation here
@@ -83,14 +97,24 @@ impl SimpleComponent for AppModel {
 
     fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
         match msg {
-            AppMsg::AddChar(_) => todo!(),
-            AppMsg::Open(HeaderOutput::About) => self
-                .about
+            AppInput::AddChar(_) => todo!(),
+            AppInput::Open(HeaderOutput::About) => self
+                .about_page
                 .sender()
                 .send(AboutInput::Show)
                 .expect("Failed to open About Page"),
-            AppMsg::Open(HeaderOutput::Preferences) => {}
-            AppMsg::Close(_) => todo!(),
+            AppInput::Open(HeaderOutput::Preferences) => self
+                .preferences_page
+                .sender()
+                .send(PreferencesPageInput::Show)
+                .expect("Failed to open About Page"),
+            AppInput::SetPreference(new_pref) => {
+                match new_pref {
+                    PreferencesPageOutput::SetMode(mode) => self.preferences.mode = mode,
+                    PreferencesPageOutput::SetTimeout(dur) => self.preferences.timeout = dur,
+                };
+                AppPreferences::set(self.preferences)
+            }
         };
     }
 }

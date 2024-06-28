@@ -2,7 +2,7 @@ mod app;
 mod components;
 mod config;
 
-use app::AppModel;
+use app::{preferences::AppPreferences, AppModel};
 use config::APP_ID;
 use relm4::{
     gtk::{self, gdk, gio, glib},
@@ -23,7 +23,7 @@ fn main() {
     // relm4_icons::initialize_icons();
 
     // launch app
-    app.run::<AppModel>(());
+    app.run::<AppModel>(AppPreferences::load());
 }
 
 fn initialize_custom_icons() {
