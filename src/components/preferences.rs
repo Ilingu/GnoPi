@@ -16,7 +16,7 @@ pub enum PreferencesPageInput {
     Show,
     Hide,
     SelectMode(AppMode),
-    SelectTimeout(f64),
+    SelectTimeout(f32),
 }
 
 #[derive(Debug)]
@@ -74,9 +74,9 @@ impl SimpleComponent for PreferencesPageModel {
                         set_digits: 1,
                         set_adjustment: Some(&gtk::Adjustment::new(0.0,0.0,15.0,0.5,0.0,0.0)), // set range and step increment
                         #[watch]
-                        set_value: model.timeout.unwrap_or(Duration::from_secs(0)).as_secs_f64(),
+                        set_value: model.timeout.unwrap_or_default().as_secs_f64(),
                         connect_value_notify[sender] => move |spin_row| {
-                            sender.input(PreferencesPageInput::SelectTimeout(spin_row.value()));
+                            sender.input(PreferencesPageInput::SelectTimeout(spin_row.value() as f32));
                         }
                     }
                 }
@@ -108,10 +108,10 @@ impl SimpleComponent for PreferencesPageModel {
                     .output(PreferencesPageOutput::SetMode(mode))
                     .expect("Unable to set mode");
             }
-            PreferencesPageInput::SelectTimeout(durf64) => {
-                let dur = match durf64 == 0.0 {
+            PreferencesPageInput::SelectTimeout(durf32) => {
+                let dur = match durf32 == 0.0 {
                     true => None,
-                    false => Some(Duration::from_secs_f64(durf64)),
+                    false => Some(Duration::from_secs_f32(durf32)),
                 };
                 self.timeout = dur;
                 sender

@@ -22,6 +22,18 @@ pub enum AppMode {
     Visible,
 }
 
+impl TryFrom<u8> for AppMode {
+    type Error = ();
+
+    fn try_from(val: u8) -> Result<Self, Self::Error> {
+        match val {
+            0 => Ok(AppMode::Blind),
+            1 => Ok(AppMode::Visible),
+            _ => Err(()),
+        }
+    }
+}
+
 // App Component
 
 pub struct AppModel {
@@ -113,7 +125,10 @@ impl SimpleComponent for AppModel {
                     PreferencesPageOutput::SetMode(mode) => self.preferences.mode = mode,
                     PreferencesPageOutput::SetTimeout(dur) => self.preferences.timeout = dur,
                 };
-                AppPreferences::set(self.preferences)
+                if AppPreferences::set(self.preferences).is_err() {
+                    eprintln!("Failed to save preference");
+                    todo!() // toast error "Failed to save preference"
+                }
             }
         };
     }
