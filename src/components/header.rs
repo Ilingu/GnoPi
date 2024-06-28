@@ -40,7 +40,7 @@ impl SimpleComponent for HeaderModel {
     }
 
     fn init(
-        _params: Self::Init,
+        _: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
