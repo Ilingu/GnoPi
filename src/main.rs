@@ -9,9 +9,6 @@ use relm4::{
     RelmApp,
 };
 
-// include pi digits into the binary (1 million digits)
-const PI_DIGITS: &[u8; 1_000_000] = include_bytes!("../data/app/1m");
-
 fn main() {
     glib::set_application_name("GnoPi");
 
