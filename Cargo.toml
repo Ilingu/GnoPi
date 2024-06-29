@@ -1,7 +1,8 @@
 [package]
-name = "pi_trainer"
+name = "gnopi"
 version = "0.1.0"
 edition = "2021"
+description = "A π memorization trainer"
 
 [dependencies]
 dirs = "5.0.1"
