@@ -10,6 +10,7 @@ use super::AppMode;
 pub struct AppPreferences {
     pub mode: AppMode,
     pub timeout: Option<Duration>,
+    pub digits_per_row: u8,
 }
 
 impl Default for AppPreferences {
@@ -17,6 +18,7 @@ impl Default for AppPreferences {
         Self {
             mode: AppMode::Visible,
             timeout: None,
+            digits_per_row: 10,
         }
     }
 }
@@ -30,6 +32,7 @@ macro_rules! tod {
         }
     };
 }
+const PREFERENCES_BYTES_LEN: usize = 6;
 
 impl AppPreferences {
     /// return the path to the app's config file (and ensure that all the necessary directories and files exists)
@@ -47,12 +50,13 @@ impl AppPreferences {
         Ok(config_path)
     }
 
-    fn as_bytes(&self) -> [u8; 5] {
-        let mut bytes = [0; 5];
+    fn as_bytes(&self) -> [u8; PREFERENCES_BYTES_LEN] {
+        let mut bytes = [0; PREFERENCES_BYTES_LEN];
         bytes[0] = self.mode as u8; // if less than 255 appmode it should be ok...
+        bytes[5] = self.digits_per_row;
 
         let timeout_bytes = self.timeout.unwrap_or_default().as_secs_f32().to_be_bytes();
-        bytes[1..].copy_from_slice(&timeout_bytes);
+        bytes[1..=4].copy_from_slice(&timeout_bytes);
 
         bytes
     }
@@ -63,8 +67,9 @@ impl AppPreferences {
         }
 
         let mode = AppMode::try_from(bytes[0])?;
+        let digits_per_row = bytes[5];
 
-        let raw_timeout = f32::from_be_bytes(bytes[1..].try_into().unwrap());
+        let raw_timeout = f32::from_be_bytes(bytes[1..=4].try_into().unwrap());
         if raw_timeout < 0.0 {
             return Err(()); // data corrupted
         }
@@ -73,7 +78,11 @@ impl AppPreferences {
             false => Some(Duration::from_secs_f32(raw_timeout)),
         };
 
-        Ok(AppPreferences { mode, timeout })
+        Ok(AppPreferences {
+            mode,
+            timeout,
+            digits_per_row,
+        })
     }
 
     pub fn load() -> Self {
