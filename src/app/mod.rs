@@ -6,7 +6,7 @@ use crate::{
     components::{
         about::{AboutInput, AboutPageModel},
         header::{HeaderModel, HeaderOutput},
-        pi_digit::{PiDigitModel, PiDigitState},
+        pi_digit::{PiDigitInput, PiDigitModel, PiDigitState},
         preferences::{PreferencesPageInput, PreferencesPageModel, PreferencesPageOutput},
     },
     config,
@@ -47,7 +47,7 @@ impl TryFrom<u8> for AppMode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AppPages {
     Placeholder,
     Memoriser,
@@ -122,6 +122,16 @@ impl SimpleComponent for AppModel {
             set_titlebar: Some(model.header.widget()),
             set_icon_name: Some("logo"),
 
+            add_controller: {
+                let key_event = EventControllerKey::new();
+                let key_sender = sender.clone();
+                key_event.connect_key_pressed(move |_, key, _, _| {
+                    key_sender.input(AppInput::KeyPressed(key));
+                    gtk::glib::Propagation::Proceed
+                });
+                key_event
+            },
+
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
 
@@ -162,17 +172,6 @@ impl SimpleComponent for AppModel {
                                 // set_valign: gtk::Align::Center,
                                 set_spacing:5,
 
-
-                                add_controller: {
-                                    let key_event = EventControllerKey::new();
-                                    let key_sender = sender.clone();
-                                    key_event.connect_key_pressed(move |_, key, _, _| {
-                                        key_sender.input(AppInput::KeyPressed(key));
-                                        gtk::glib::Propagation::Proceed
-                                    });
-                                    key_event
-                                },
-
                                 gtk::Label {
                                     set_label: "Memorize! 3.",
                                     set_css_classes: &["title-2"],
@@ -192,7 +191,7 @@ impl SimpleComponent for AppModel {
 
                                     #[watch]
                                     set_vadjustment: Some(&{
-                                        let scroll_pos = 100.0*(model.curr_pi_index as f64)/(config::PRELOADED_DIGITS as f64);
+                                        let scroll_pos = 100.0*(model.curr_pi_index as f64)/(model.preferences.digits_per_row as f64);
                                         gtk::Adjustment::new(scroll_pos, 0.0, scroll_pos, 30.0, 0.0, 0.0)
                                     }),
 
@@ -227,7 +226,7 @@ impl SimpleComponent for AppModel {
             .detach();
         let preferences_page = PreferencesPageModel::builder()
             .transient_for(&root)
-            .launch((true, preferences))
+            .launch(preferences)
             .forward(sender.input_sender(), AppInput::SetPreference);
 
         // factories
@@ -239,7 +238,11 @@ impl SimpleComponent for AppModel {
                 .iter()
                 .take(config::PRELOADED_DIGITS)
                 .for_each(|d| {
-                    pi_digits.guard().push_back((*d, PiDigitState::Placeholder));
+                    pi_digits.guard().push_back((
+                        *d,
+                        PiDigitState::Placeholder,
+                        preferences.digits_per_row,
+                    ));
                 });
         }
 
@@ -278,8 +281,8 @@ impl SimpleComponent for AppModel {
                 }
             }
             AppInput::AddDigit(character) => {
-                if !character.is_numeric() {
-                    return; // only numeric value are
+                if self.current_page != AppPages::Memoriser || !character.is_numeric() {
+                    return;
                 }
                 let digit = tor!(character.to_digit(10)) as u8;
                 let state = if digit == PI_DIGITS[self.curr_pi_index] {
@@ -296,14 +299,18 @@ impl SimpleComponent for AppModel {
 
                 match self.preferences.mode {
                     AppMode::Blind | AppMode::InstantDeath => {
-                        self.pi_digits.guard().push_back((digit, state));
+                        self.pi_digits.guard().push_back((
+                            digit,
+                            state,
+                            self.preferences.digits_per_row,
+                        ));
                     }
                     AppMode::Visible => {
                         // update digit
-                        self.pi_digits
-                            .guard()
-                            .insert(self.curr_pi_index, (digit, state));
-                        tor!(self.pi_digits.guard().remove(self.curr_pi_index + 1));
+                        self.pi_digits.guard().send(
+                            self.curr_pi_index,
+                            PiDigitInput::UpdateDigitState((digit, state)),
+                        );
 
                         // add next visible digit
                         if self
@@ -315,6 +322,7 @@ impl SimpleComponent for AppModel {
                             self.pi_digits.guard().push_back((
                                 PI_DIGITS[self.curr_pi_index + config::PRELOADED_DIGITS],
                                 PiDigitState::Placeholder,
+                                self.preferences.digits_per_row,
                             ));
                         }
                     }
@@ -322,24 +330,30 @@ impl SimpleComponent for AppModel {
 
                 self.curr_pi_index += 1
             }
-            AppInput::RemoveLastDigit => match self.preferences.mode {
-                AppMode::Blind => {
-                    tor!(self.pi_digits.guard().pop_back());
-                    self.curr_pi_index = self.curr_pi_index.saturating_sub(1);
+            AppInput::RemoveLastDigit => {
+                if self.current_page != AppPages::Memoriser {
+                    return;
                 }
-                AppMode::Visible => {
-                    // remove last digit of the user
-                    self.curr_pi_index = self.curr_pi_index.saturating_sub(1);
-                    tor!(self.pi_digits.guard().remove(self.curr_pi_index));
-
-                    // and add back the right placeholder one
-                    self.pi_digits.guard().insert(
-                        self.curr_pi_index,
-                        (PI_DIGITS[self.curr_pi_index], PiDigitState::Placeholder),
-                    );
-                }
-                _ => {}
-            },
+                match self.preferences.mode {
+                    AppMode::Blind => {
+                        tor!(self.pi_digits.guard().pop_back());
+                        self.curr_pi_index = self.curr_pi_index.saturating_sub(1);
+                    }
+                    AppMode::Visible => {
+                        // remove last digit of the user
+                        self.curr_pi_index = self.curr_pi_index.saturating_sub(1);
+                        // and add right one
+                        self.pi_digits.guard().send(
+                            self.curr_pi_index,
+                            PiDigitInput::UpdateDigitState((
+                                PI_DIGITS[self.curr_pi_index],
+                                PiDigitState::Placeholder,
+                            )),
+                        );
+                    }
+                    _ => {}
+                };
+            }
             AppInput::Open(HeaderOutput::About) => {
                 if self.about_page.sender().send(AboutInput::Show).is_err() {
                     push_toast!("Failed to open about page", 2, sender);
@@ -366,13 +380,26 @@ impl SimpleComponent for AppModel {
                                 .iter()
                                 .take(config::PRELOADED_DIGITS)
                                 .for_each(|d| {
-                                    self.pi_digits
-                                        .guard()
-                                        .push_back((*d, PiDigitState::Placeholder));
+                                    self.pi_digits.guard().push_back((
+                                        *d,
+                                        PiDigitState::Placeholder,
+                                        self.preferences.digits_per_row,
+                                    ));
                                 })
                         }
                     }
                     PreferencesPageOutput::SetTimeout(dur) => self.preferences.timeout = dur,
+                    PreferencesPageOutput::SetDigitsPerRow(digits_per_row) => {
+                        self.preferences.digits_per_row = digits_per_row;
+
+                        let mut guard = self.pi_digits.guard();
+                        let cloned_digits = guard.iter().cloned().collect::<Vec<_>>();
+                        guard.clear();
+
+                        for d in cloned_digits {
+                            guard.push_back((d.digit, d.state, digits_per_row));
+                        }
+                    }
                 };
                 if AppPreferences::set(self.preferences).is_err() {
                     push_toast!("Failed to save preference", 2, sender);

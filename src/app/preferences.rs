@@ -62,12 +62,15 @@ impl AppPreferences {
     }
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, ()> {
-        if bytes.len() != 5 {
+        if bytes.len() != PREFERENCES_BYTES_LEN {
             return Err(()); // data corrupted
         }
 
         let mode = AppMode::try_from(bytes[0])?;
         let digits_per_row = bytes[5];
+        if digits_per_row < 5 {
+            return Err(()); // data corrupted
+        }
 
         let raw_timeout = f32::from_be_bytes(bytes[1..=4].try_into().unwrap());
         if raw_timeout < 0.0 {

@@ -6,9 +6,10 @@ use relm4::{adw, gtk, ComponentParts, ComponentSender, SimpleComponent};
 use crate::app::{preferences::AppPreferences, AppMode};
 
 pub struct PreferencesPageModel {
-    hidden: bool,
-    mode: AppMode,
-    timeout: Option<Duration>,
+    pub hidden: bool,
+    pub mode: AppMode,
+    pub timeout: Option<Duration>,
+    pub digits_per_row: u8,
 }
 
 #[derive(Debug)]
@@ -17,20 +18,22 @@ pub enum PreferencesPageInput {
     Hide,
     SelectMode(AppMode),
     SelectTimeout(f32),
+    SetDigitsPerRow(u8),
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum PreferencesPageOutput {
     SetMode(AppMode),
     SetTimeout(Option<Duration>),
-    // SetNb(Option<Duration>),
+    SetDigitsPerRow(u8),
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for PreferencesPageModel {
     type Input = PreferencesPageInput;
     type Output = PreferencesPageOutput;
-    type Init = (bool, AppPreferences);
+    type Init = AppPreferences;
 
     view! {
         #[root]
@@ -87,11 +90,11 @@ impl SimpleComponent for PreferencesPageModel {
                         set_subtitle: "Number of pi digits in one row",
                         set_numeric: true,
                         set_digits: 0,
-                        set_adjustment: Some(&gtk::Adjustment::new(0.0,0.0,15.0,0.5,0.0,0.0)), // set range and step increment
+                        set_adjustment: Some(&gtk::Adjustment::new(10.0,5.0,255.0,1.0,0.0,0.0)), // set range and step increment
                         #[watch]
-                        set_value: 10.0,
+                        set_value: model.digits_per_row as f64,
                         connect_value_notify[sender] => move |spin_row| {
-                            sender.input(PreferencesPageInput::);
+                            sender.input(PreferencesPageInput::SetDigitsPerRow(spin_row.value().round() as u8));
                         }
                     }
                 }
@@ -100,14 +103,15 @@ impl SimpleComponent for PreferencesPageModel {
     }
 
     fn init(
-        (hidden, preferences): Self::Init,
+        pref: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let model = PreferencesPageModel {
-            hidden,
-            mode: preferences.mode,
-            timeout: preferences.timeout,
+            hidden: true,
+            mode: pref.mode,
+            timeout: pref.timeout,
+            digits_per_row: pref.digits_per_row,
         };
         let widgets = view_output!();
         ComponentParts { model, widgets }
@@ -128,6 +132,10 @@ impl SimpleComponent for PreferencesPageModel {
                 };
                 self.timeout = dur;
                 let _ = sender.output(PreferencesPageOutput::SetTimeout(dur));
+            }
+            PreferencesPageInput::SetDigitsPerRow(digits_per_row) => {
+                self.digits_per_row = digits_per_row;
+                let _ = sender.output(PreferencesPageOutput::SetDigitsPerRow(digits_per_row));
             }
         }
     }
