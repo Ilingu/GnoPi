@@ -54,7 +54,7 @@ impl SimpleComponent for PreferencesPageModel {
                     set_title: "App settings",
                     adw::ComboRow {
                         set_title: "App Mode",
-                        set_model: Some(&gtk::StringList::new(&["Blind", "Visible", "InstantDeath"])),
+                        set_model: Some(&gtk::StringList::new(&["Blind", "Learn", "InstantDeath"])),
 
                         #[watch]
                         set_selected: model.mode as u32,
@@ -64,9 +64,9 @@ impl SimpleComponent for PreferencesPageModel {
                                     let selected_text = text.string().to_string();
                                     let selected_mode = match selected_text.as_str() {
                                         "Blind" => AppMode::Blind,
-                                        "Visible" => AppMode::Visible,
+                                        "Learn" => AppMode::Learn,
                                         "InstantDeath" => AppMode::InstantDeath,
-                                        _ => AppMode::Visible // should be unreachable
+                                        _ => AppMode::Learn // should be unreachable
                                     };
                                     sender.input(PreferencesPageInput::SelectMode(selected_mode));
                                 }

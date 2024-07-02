@@ -16,7 +16,7 @@ pub struct AppPreferences {
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
-            mode: AppMode::Visible,
+            mode: AppMode::Learn,
             timeout: None,
             digits_per_row: 10,
         }

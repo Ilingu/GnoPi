@@ -17,7 +17,7 @@ use relm4::{
     abstractions::Toaster,
     adw,
     factory::FactoryVecDeque,
-    gtk::{self, gdk::Key, EventControllerKey},
+    gtk::{self, gdk::Key, glib::SourceId, EventControllerKey},
     Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmWidgetExt,
     SimpleComponent,
 };
@@ -30,7 +30,7 @@ const PI_DIGITS: &[u8; 1_000_000] = include_bytes!("../../data/app/1m");
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum AppMode {
     Blind,
-    Visible,
+    Learn,
     InstantDeath,
 }
 
@@ -40,7 +40,7 @@ impl TryFrom<u8> for AppMode {
     fn try_from(val: u8) -> Result<Self, Self::Error> {
         match val {
             0 => Ok(AppMode::Blind),
-            1 => Ok(AppMode::Visible),
+            1 => Ok(AppMode::Learn),
             2 => Ok(AppMode::InstantDeath),
             _ => Err(()),
         }
@@ -77,6 +77,7 @@ macro_rules! tor {
 pub struct AppModel {
     curr_pi_index: usize,
     preferences: AppPreferences,
+    timeout_progress: f64,
 
     // components
     header: Controller<HeaderModel>,
@@ -87,12 +88,36 @@ pub struct AppModel {
 
     // factories
     pi_digits: FactoryVecDeque<PiDigitModel>,
+
+    // other
+    timeout_ticker: Option<SourceId>,
 }
 
 impl AppModel {
     fn reset_digits(&mut self) {
         self.pi_digits.guard().clear();
         self.curr_pi_index = 0;
+    }
+
+    fn spawn_ticker(&mut self, tick_sender: ComponentSender<Self>) {
+        if self.preferences.timeout.is_none() {
+            return;
+        }
+        let ticker_id = gtk::glib::timeout_add_local(
+            Duration::from_millis(config::PROGRESSBAR_UPDATE_FREQUENCY as u64),
+            move || {
+                tick_sender.input(AppInput::TickTimeout);
+                gtk::glib::ControlFlow::Continue
+            },
+        );
+        self.timeout_ticker = Some(ticker_id);
+    }
+
+    fn clear_ticker(&mut self) {
+        if let Some(ticker) = self.timeout_ticker.take() {
+            ticker.remove();
+        }
+        self.timeout_progress = 0.0; // after ticker kill to prevent a last minute trigger
     }
 }
 
@@ -101,6 +126,7 @@ pub enum AppInput {
     KeyPressed(Key),
     AddDigit(char),
     RemoveLastDigit,
+    TickTimeout,
 
     Open(HeaderOutput),
     SetPreference(PreferencesPageOutput),
@@ -132,79 +158,112 @@ impl SimpleComponent for AppModel {
                 key_event
             },
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
+            gtk::Overlay {
+                add_overlay =  &gtk::ProgressBar {
+                    set_valign: gtk::Align::Start,
+                    set_hexpand: true,
+                    add_css_class: "osd",
+                    #[watch]
+                    set_fraction: model.timeout_progress,
+                },
 
-                #[local_ref]
-                toast_overlay -> adw::ToastOverlay {
-                    set_vexpand: true,
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 5,
-                        set_margin_all: 5,
-                        set_valign: gtk::Align::Center,
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
 
-                        // Here lie the app UI code
-                        gtk::Stack {
-                            set_transition_type: gtk::StackTransitionType::SlideLeftRight,
-                            set_transition_duration: 500,
+                    #[local_ref]
+                    toast_overlay -> adw::ToastOverlay {
+                        set_vexpand: true,
+                        set_hexpand: true,
 
-                            #[watch]
-                            set_visible_child_name: &format!("{:?}", model.current_page).to_lowercase(),
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 5,
+                            set_margin_all: 5,
+                            set_valign: gtk::Align::Center,
 
-                            add_named[Some("placeholder")] = &adw::StatusPage {
-                                set_icon_name: Some("logo"),
-                                set_title: "Welcome to GnoPi!",
-                                set_description: Some("A π memorization trainer"),
+                            // Here lie the app UI code
+                            gtk::Stack {
+                                set_transition_type: gtk::StackTransitionType::SlideLeftRight,
+                                set_transition_duration: 500,
 
-                                gtk::Button {
-                                    set_css_classes: &["suggested-action", "pill"],
-                                    set_label: "Launch!",
-                                    set_use_underline: true,
-                                    set_halign: gtk::Align::Center,
-                                    connect_clicked => AppInput::SwitchPage(AppPages::Memoriser)
-                                },
-                            } ,
+                                #[watch]
+                                set_visible_child_name: &format!("{:?}", model.current_page).to_lowercase(),
 
-                            // #[name = "memoriser"] -> to get the component in init
-                            add_named[Some("memoriser")]  = &gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                // set_valign: gtk::Align::Center,
-                                set_spacing:5,
+                                add_named[Some("placeholder")] = &adw::StatusPage {
+                                    set_icon_name: Some("logo"),
+                                    set_title: "Welcome to GnoPi!",
+                                    set_description: Some("A π memorization trainer"),
 
-                                gtk::Label {
-                                    set_label: "Memorize! 3.",
-                                    set_css_classes: &["title-2"],
-                                    set_margin_bottom: 15,
-                                },
-                                #[name = "scrolled_window"]
-                                gtk::ScrolledWindow {
-                                    set_css_classes: &["undershoot-top", "undershoot-bottom"],
+                                    gtk::Button {
+                                        set_css_classes: &["suggested-action", "pill"],
+                                        set_label: "Launch!",
+                                        set_use_underline: true,
+                                        set_halign: gtk::Align::Center,
+                                        connect_clicked => AppInput::SwitchPage(AppPages::Memoriser)
+                                    },
+                                } ,
 
-                                    set_hexpand: true,
-                                    set_vexpand: true,
-                                    set_valign: gtk::Align::Fill,
-                                    set_halign: gtk::Align::Fill,
+                                // #[name = "memoriser"] -> to get the component in init
+                                add_named[Some("memoriser")]  = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_spacing:5,
 
-                                    set_hscrollbar_policy: gtk::PolicyType::Never,
-                                    set_vscrollbar_policy: gtk::PolicyType::Automatic,
+                                    gtk::Label {
+                                        #[watch]
+                                        set_label: match model.preferences.mode {
+                                            AppMode::Blind => "Blind PI 😵‍💫",
+                                            AppMode::Learn => "Learn PI! 👨‍🎓",
+                                            AppMode::InstantDeath => "Instant Death PI ☠️",
+                                        },
+                                        set_css_classes: &["title-1"],
+                                        #[watch]
+                                        set_margin_bottom: match model.preferences.mode {
+                                            AppMode::Blind | AppMode::InstantDeath => 5,
+                                            AppMode::Learn => 15,
+                                        },
+                                    },
+                                    gtk::Label {
+                                        #[watch]
+                                        set_visible: match model.preferences.mode {
+                                            AppMode::Blind | AppMode::InstantDeath => true,
+                                            AppMode::Learn => false,
+                                        },
+                                        set_label: "(Start typing the digits 🖮)",
+                                        #[watch]
+                                        set_margin_bottom: match model.preferences.mode {
+                                            AppMode::Blind | AppMode::InstantDeath => 10,
+                                            AppMode::Learn => 0,
+                                        },
+                                    },
+                                    #[name = "scrolled_window"]
+                                    gtk::ScrolledWindow {
+                                        set_css_classes: &["undershoot-top", "undershoot-bottom"],
 
-                                    #[watch]
-                                    set_vadjustment: Some(&{
-                                        let scroll_pos = 100.0*(model.curr_pi_index as f64)/(model.preferences.digits_per_row as f64);
-                                        gtk::Adjustment::new(scroll_pos, 0.0, scroll_pos, 30.0, 0.0, 0.0)
-                                    }),
+                                        set_hexpand: true,
+                                        set_vexpand: true,
+                                        set_valign: gtk::Align::Fill,
+                                        set_halign: gtk::Align::Fill,
 
-                                    #[local_ref]
-                                    pi_digits_box -> gtk::Grid {
-                                        set_orientation: gtk::Orientation::Horizontal,
-                                        set_column_spacing: 5,
-                                        set_row_spacing: 10,
+                                        set_hscrollbar_policy: gtk::PolicyType::Never,
+                                        set_vscrollbar_policy: gtk::PolicyType::Automatic,
+
+                                        #[watch]
+                                        set_vadjustment: Some(&{
+                                            let scroll_pos = 100.0*(model.curr_pi_index as f64)/(model.preferences.digits_per_row as f64);
+                                            gtk::Adjustment::new(scroll_pos, 0.0, scroll_pos, 30.0, 0.0, 0.0)
+                                        }),
+
+                                        #[local_ref]
+                                        pi_digits_box -> gtk::Grid {
+                                            set_orientation: gtk::Orientation::Horizontal,
+                                            set_column_spacing: 5,
+                                            set_row_spacing: 10,
+                                        }
                                     }
                                 }
-                            }
+                            },
                         },
-                    },
+                    }
                 }
             }
         }
@@ -230,33 +289,24 @@ impl SimpleComponent for AppModel {
             .forward(sender.input_sender(), AppInput::SetPreference);
 
         // factories
-        let mut pi_digits = FactoryVecDeque::builder()
+        let pi_digits = FactoryVecDeque::builder()
             .launch(gtk::Grid::default())
             .detach();
-        if preferences.mode == AppMode::Visible {
-            PI_DIGITS
-                .iter()
-                .take(config::PRELOADED_DIGITS)
-                .for_each(|d| {
-                    pi_digits.guard().push_back((
-                        *d,
-                        PiDigitState::Placeholder,
-                        preferences.digits_per_row,
-                    ));
-                });
-        }
 
         // define default model
         let model = AppModel {
             curr_pi_index: 0,
             preferences,
             current_page: AppPages::Placeholder,
+            timeout_progress: 0.0,
 
             header,
             about_page,
             preferences_page,
             toaster: Toaster::default(),
             pi_digits,
+
+            timeout_ticker: None,
         };
 
         // inject to view!
@@ -270,6 +320,17 @@ impl SimpleComponent for AppModel {
 
     fn update(&mut self, message: Self::Input, sender: ComponentSender<Self>) {
         match message {
+            AppInput::TickTimeout => {
+                if let Some(timeout) = self.preferences.timeout {
+                    let incremental_step =
+                        config::PROGRESSBAR_UPDATE_FREQUENCY as f64 / timeout.as_millis() as f64;
+                    self.timeout_progress += incremental_step;
+                    if self.timeout_progress >= 1.0 {
+                        // game over, reset game
+                        sender.input(AppInput::SwitchPage(AppPages::Placeholder));
+                    }
+                }
+            }
             AppInput::KeyPressed(key) => {
                 let key_name = tor!(key.name());
                 match key_name.as_str() {
@@ -292,9 +353,12 @@ impl SimpleComponent for AppModel {
                 };
 
                 if self.preferences.mode == AppMode::InstantDeath && state == PiDigitState::Wrong {
-                    // game over, restart game
-                    self.reset_digits();
+                    // game over, reset game
                     return sender.input(AppInput::SwitchPage(AppPages::Placeholder));
+                }
+                if state == PiDigitState::Right {
+                    self.clear_ticker(); // restart timer
+                    self.spawn_ticker(sender.clone())
                 }
 
                 match self.preferences.mode {
@@ -305,7 +369,7 @@ impl SimpleComponent for AppModel {
                             self.preferences.digits_per_row,
                         ));
                     }
-                    AppMode::Visible => {
+                    AppMode::Learn => {
                         // update digit
                         self.pi_digits.guard().send(
                             self.curr_pi_index,
@@ -339,7 +403,7 @@ impl SimpleComponent for AppModel {
                         tor!(self.pi_digits.guard().pop_back());
                         self.curr_pi_index = self.curr_pi_index.saturating_sub(1);
                     }
-                    AppMode::Visible => {
+                    AppMode::Learn => {
                         // remove last digit of the user
                         self.curr_pi_index = self.curr_pi_index.saturating_sub(1);
                         // and add right one
@@ -375,7 +439,7 @@ impl SimpleComponent for AppModel {
                         self.preferences.mode = mode;
 
                         self.reset_digits(); // reset game state
-                        if mode == AppMode::Visible {
+                        if mode == AppMode::Learn {
                             PI_DIGITS
                                 .iter()
                                 .take(config::PRELOADED_DIGITS)
@@ -414,7 +478,26 @@ impl SimpleComponent for AppModel {
                 toast.connect_button_clicked(move |this| this.dismiss());
                 self.toaster.add_toast(toast);
             }
-            AppInput::SwitchPage(page) => self.current_page = page,
+            AppInput::SwitchPage(page) => {
+                self.current_page = page;
+                match self.current_page {
+                    AppPages::Placeholder => {
+                        self.reset_digits();
+                        self.clear_ticker();
+                    }
+                    AppPages::Memoriser if self.preferences.mode == AppMode::Learn => PI_DIGITS
+                        .iter()
+                        .take(config::PRELOADED_DIGITS)
+                        .for_each(|d| {
+                            self.pi_digits.guard().push_back((
+                                *d,
+                                PiDigitState::Placeholder,
+                                self.preferences.digits_per_row,
+                            ));
+                        }),
+                    _ => {}
+                }
+            }
         };
     }
 }
