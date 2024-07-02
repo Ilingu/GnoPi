@@ -4,12 +4,12 @@
 
 <table>
   <tr>
-    <td><img src="./demo/startpage.png" width="50%" /></td>
-    <td><img src="./demo/learnmode.png" width="50%" /></td>
+    <td><img src="./demo/startpage.png" width="100%" /></td>
+    <td><img src="./demo/learnmode.png" width="100%" /></td>
   </tr>
   <tr>
-    <td><img src="./demo/blindmode.png" width="50%" /></td>
-    <td><img src="./demo/instantdeathmode.png" width="50%" /></td>
+    <td><img src="./demo/blindmode.png" width="100%" /></td>
+    <td><img src="./demo/instantdeathmode.png" width="100%" /></td>
   </tr>
 </table>
 
