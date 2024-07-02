@@ -18,7 +18,6 @@ fn main() {
     // init icons
     initialize_custom_icons();
     gtk::Window::set_default_icon_name("logo");
-    // relm4_icons::initialize_icons();
 
     // launch app
     app.run::<AppModel>(AppPreferences::load());
